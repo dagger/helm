@@ -1,0 +1,122 @@
+"""
+A Dagger module for Helm: a package manager for Kubernetes. https://helm.sh
+"""
+type Helm {
+  """
+  The version of Helm to use.
+  """
+  pub version: String! = "3.18.4"
+
+  """
+  Discover Chart.yaml marker files selected from the workspace.
+  """
+  let chartYamlPaths(ws: Workspace!): [String!]! {
+    # Discovery only needs the marker file; the containing directory is the
+    # chart root used later for Helm commands.
+    ws
+      .directory(".", include: ["**/Chart.yaml"])
+      .glob("**/Chart.yaml")
+  }
+
+  """
+  Scan the workspace for Helm charts.
+  """
+  pub charts(ws: Workspace!): [Chart!]! {
+    chartYamlPaths(ws)
+      .map { chartYamlPath =>
+        let rawPath = chartYamlPath.trimSuffix("Chart.yaml").trimSuffix("/")
+        let path = if (rawPath == "") { "." } else { rawPath }
+        Chart(
+          path: path,
+          version: version,
+          # Helm treats the directory containing Chart.yaml as the chart
+          # boundary. Mount it whole so values, templates, deps, CRDs, and
+          # files referenced via .Files are available to `helm lint`.
+          source: ws.directory(path),
+        )
+      }
+  }
+
+  """
+  Return one discovered chart by its workspace-relative path.
+  """
+  pub chart(ws: Workspace!, path: String!): Chart! {
+    let cleanPath = path.trimSuffix("/")
+    let cleanPath = if (cleanPath == "") {
+      "."
+    } else {
+      cleanPath.trimPrefix("./").trimPrefix("/")
+    }
+    let match = charts(ws).filter { chart => chart.path == cleanPath }[0]
+    if (match != null) {
+      match
+    } else {
+      raise "helm chart not found: " + cleanPath
+    }
+  }
+
+  """
+  Lint every discovered Helm chart in the workspace.
+  """
+  pub lint(ws: Workspace!): Void @check {
+    let layers = charts(ws).reduce(directory) { layers, chart =>
+      layers.withDirectory(chart.path, chart.lintLayer)
+    }
+    layers.sync
+    null
+  }
+}
+
+"""
+A discovered Helm chart in the workspace.
+"""
+type Chart {
+  """
+  Path of the chart directory in the workspace.
+  """
+  pub path: String!
+
+  """
+  Helm version to use.
+  """
+  let version: String!
+
+  """
+  Chart source directory.
+  """
+  let source: Directory!
+
+  """
+  Base container for Helm commands.
+  """
+  let base: Container! {
+    container
+      .from("cgr.dev/chainguard/wolfi-base")
+      .withExec(["apk", "add", "--no-cache", "helm~" + version])
+      .withWorkdir("/chart")
+  }
+
+  """
+  Run helm lint on this chart.
+  """
+  pub lint: Void @check {
+    lintExec.sync
+    null
+  }
+
+  """
+  Container state after running helm lint.
+  """
+  let lintExec: Container! {
+    base
+      .withMountedDirectory(".", source)
+      .withExec(["helm", "lint", "."])
+  }
+
+  """
+  Directory layer used to run chart lint checks in parallel.
+  """
+  let lintLayer: Directory! {
+    directory.withFile("Chart.yaml", lintExec.file("Chart.yaml"))
+  }
+}

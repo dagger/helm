@@ -1,0 +1,38 @@
+"""
+End-to-end checks for the Helm module.
+"""
+type E2e {
+  let fixturePath: String! = ".dagger/modules/e2e/testdata/charts/app"
+
+  """
+  Return the discovered fixture chart path through the imported Helm module.
+  """
+  pub fixtureChartPath(ws: Workspace!): String! {
+    helm().chart(ws, fixturePath).path
+  }
+
+  """
+  Verify the imported Helm module discovers the fixture chart.
+  """
+  pub discoverFixtureChart(ws: Workspace!): Void @check {
+    let chart = helm().chart(ws, fixturePath)
+    if (chart.path != fixturePath) {
+      raise "expected fixture chart path " + fixturePath + ", got " + chart.path
+    }
+    null
+  }
+
+  """
+  Run helm lint on the fixture Chart object.
+  """
+  pub lintFixtureChart(ws: Workspace!): Void @check {
+    helm().chart(ws, fixturePath).lint
+  }
+
+  """
+  Run workspace-level lint through the imported Helm module.
+  """
+  pub lintWorkspace(ws: Workspace!): Void @check {
+    helm().lint(ws)
+  }
+}

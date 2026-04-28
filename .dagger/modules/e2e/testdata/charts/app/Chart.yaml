@@ -1,0 +1,6 @@
+apiVersion: v2
+name: e2e-app
+description: Fixture chart for Helm module e2e checks
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
