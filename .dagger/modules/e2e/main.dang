@@ -37,9 +37,9 @@ type E2e {
   }
 
   """
-  Run workspace-level template dry-run through the imported Helm module.
+  Run workspace-level template assertion through the imported Helm module.
   """
-  pub templateDryRunWorkspace(ws: Workspace!): Void @check {
-    helm().templateDryRun(ws)
+  pub assertTemplateWorkspace(ws: Workspace!): Void @check {
+    helm().assertTemplate(ws)
   }
 }
