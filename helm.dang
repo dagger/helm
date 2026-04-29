@@ -8,7 +8,7 @@ type Helm {
   pub version: String! = "3.18.4"
 
   """
-  Glob for chart values files to lint as extra matrix dimensions.
+  Glob for chart values files to check as extra matrix dimensions.
 
   Defaults to Helm chart-testing's CI values convention:
   https://github.com/helm/chart-testing/blob/main/doc/ct_lint.md
@@ -74,6 +74,17 @@ type Helm {
     layers.sync
     null
   }
+
+  """
+  Render every discovered values file with helm template --dry-run=client.
+  """
+  pub templateDryRun(ws: Workspace!): Void @check {
+    let layers = charts(ws).reduce(directory) { layers, chart =>
+      layers.withDirectory(chart.path, chart.templateDryRunLayer)
+    }
+    layers.sync
+    null
+  }
 }
 
 """
@@ -91,7 +102,7 @@ type Chart {
   let version: String!
 
   """
-  Glob for chart values files to lint as extra matrix dimensions.
+  Glob for chart values files to check as extra matrix dimensions.
   """
   let valuesGlob: String!
 
@@ -101,33 +112,18 @@ type Chart {
   let source: Directory!
 
   """
-  Values dimensions for this chart's lint matrix.
+  Values dimensions for this chart's check matrix.
 
   Defaults to chart-testing's convention: chart-root ci/*-values.yaml files.
   """
   pub values: [ChartValues!]! {
-    customValuesPaths.map { valuesPath =>
+    source.glob(valuesGlob).map { valuesPath =>
       ChartValues(
-        name: valuesName(valuesPath),
         path: valuesPath,
         source: source,
         version: version,
       )
     }
-  }
-
-  """
-  Custom values files selected by the configured values glob.
-  """
-  let customValuesPaths: [String!]! {
-    source.glob(valuesGlob)
-  }
-
-  """
-  Human-readable values dimension name.
-  """
-  let valuesName(path: String!): String! {
-    path.trimPrefix("ci/").trimSuffix("-values.yaml")
   }
 
   """
@@ -152,8 +148,28 @@ type Chart {
   Directory layer used to run chart lint checks in parallel.
   """
   let lintLayer: Directory! {
-    values.reduce(directory.withDirectory("default", defaultLintLayer)) { layers, values =>
-      layers.withDirectory(values.layerPath, values.lintLayer)
+    values.reduce(directory.withDirectory("default", defaultLintLayer)) { layers, chartValues =>
+      layers.withDirectory(chartValues.path, chartValues.lintLayer)
+    }
+  }
+
+  """
+  Render every discovered values file with helm template --dry-run=client.
+
+  This intentionally skips the bare chart. Some charts only render cleanly
+  with one of their explicit values files.
+  """
+  pub templateDryRun: Void @check {
+    templateDryRunLayer.sync
+    null
+  }
+
+  """
+  Directory layer used to run values template dry-runs in parallel.
+  """
+  let templateDryRunLayer: Directory! {
+    values.reduce(directory) { layers, chartValues =>
+      layers.withDirectory(chartValues.path, chartValues.templateDryRunLayer)
     }
   }
 
@@ -175,14 +191,9 @@ type Chart {
 }
 
 """
-A values dimension for a Helm chart lint check.
+A values dimension for Helm chart checks.
 """
 type ChartValues {
-  """
-  Name of this values dimension.
-  """
-  pub name: String!
-
   """
   Path to the custom values file, relative to the chart root.
   """
@@ -222,21 +233,7 @@ type ChartValues {
   let lintExec: Container! {
     base
       .withMountedDirectory(".", source)
-      .withExec(lintArgs)
-  }
-
-  """
-  helm lint command arguments.
-  """
-  let lintArgs: [String!]! {
-    ["helm", "lint", ".", "--values", path]
-  }
-
-  """
-  Directory path used to keep parallel lint layers distinct.
-  """
-  let layerPath: String! {
-    path
+      .withExec(["helm", "lint", ".", "--values", path])
   }
 
   """
@@ -244,5 +241,29 @@ type ChartValues {
   """
   let lintLayer: Directory! {
     directory.withFile("Chart.yaml", lintExec.file("Chart.yaml"))
+  }
+
+  """
+  Render this values file with helm template --dry-run=client.
+  """
+  pub templateDryRun: Void @check {
+    templateDryRunExec.sync
+    null
+  }
+
+  """
+  Container state after running helm template for this values dimension.
+  """
+  let templateDryRunExec: Container! {
+    base
+      .withMountedDirectory(".", source)
+      .withExec(["helm", "template", ".", "--values", path, "--dry-run=client"])
+  }
+
+  """
+  Directory layer used to run this template dry-run in parallel.
+  """
+  let templateDryRunLayer: Directory! {
+    directory.withFile("Chart.yaml", templateDryRunExec.file("Chart.yaml"))
   }
 }

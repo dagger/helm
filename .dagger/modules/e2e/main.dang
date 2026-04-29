@@ -35,4 +35,11 @@ type E2e {
   pub lintWorkspace(ws: Workspace!): Void @check {
     helm().lint(ws)
   }
+
+  """
+  Run workspace-level template dry-run through the imported Helm module.
+  """
+  pub templateDryRunWorkspace(ws: Workspace!): Void @check {
+    helm().templateDryRun(ws)
+  }
 }
