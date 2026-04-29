@@ -8,6 +8,14 @@ type Helm {
   pub version: String! = "3.18.4"
 
   """
+  Glob for chart values files to lint as extra matrix dimensions.
+
+  Defaults to Helm chart-testing's CI values convention:
+  https://github.com/helm/chart-testing/blob/main/doc/ct_lint.md
+  """
+  pub valuesGlob: String! = "ci/*-values.yaml"
+
+  """
   Discover Chart.yaml marker files selected from the workspace.
   """
   let chartYamlPaths(ws: Workspace!): [String!]! {
@@ -29,6 +37,7 @@ type Helm {
         Chart(
           path: path,
           version: version,
+          valuesGlob: valuesGlob,
           # Helm treats the directory containing Chart.yaml as the chart
           # boundary. Mount it whole so values, templates, deps, CRDs, and
           # files referenced via .Files are available to `helm lint`.
@@ -82,9 +91,44 @@ type Chart {
   let version: String!
 
   """
+  Glob for chart values files to lint as extra matrix dimensions.
+  """
+  let valuesGlob: String!
+
+  """
   Chart source directory.
   """
   let source: Directory!
+
+  """
+  Values dimensions for this chart's lint matrix.
+
+  Defaults to chart-testing's convention: chart-root ci/*-values.yaml files.
+  """
+  pub values: [ChartValues!]! {
+    customValuesPaths.map { valuesPath =>
+      ChartValues(
+        name: valuesName(valuesPath),
+        path: valuesPath,
+        source: source,
+        version: version,
+      )
+    }
+  }
+
+  """
+  Custom values files selected by the configured values glob.
+  """
+  let customValuesPaths: [String!]! {
+    source.glob(valuesGlob)
+  }
+
+  """
+  Human-readable values dimension name.
+  """
+  let valuesName(path: String!): String! {
+    path.trimPrefix("ci/").trimSuffix("-values.yaml")
+  }
 
   """
   Base container for Helm commands.
@@ -100,21 +144,103 @@ type Chart {
   Run helm lint on this chart.
   """
   pub lint: Void @check {
-    lintExec.sync
+    lintLayer.sync
     null
   }
 
   """
-  Container state after running helm lint.
+  Directory layer used to run chart lint checks in parallel.
   """
-  let lintExec: Container! {
+  let lintLayer: Directory! {
+    values.reduce(directory.withDirectory("default", defaultLintLayer)) { layers, values =>
+      layers.withDirectory(values.layerPath, values.lintLayer)
+    }
+  }
+
+  """
+  Container state after running helm lint with the chart's default values.
+  """
+  let defaultLintExec: Container! {
     base
       .withMountedDirectory(".", source)
       .withExec(["helm", "lint", "."])
   }
 
   """
-  Directory layer used to run chart lint checks in parallel.
+  Directory layer used to run the default chart lint check in parallel.
+  """
+  let defaultLintLayer: Directory! {
+    directory.withFile("Chart.yaml", defaultLintExec.file("Chart.yaml"))
+  }
+}
+
+"""
+A values dimension for a Helm chart lint check.
+"""
+type ChartValues {
+  """
+  Name of this values dimension.
+  """
+  pub name: String!
+
+  """
+  Path to the custom values file, relative to the chart root.
+  """
+  pub path: String!
+
+  """
+  Chart source directory.
+  """
+  let source: Directory!
+
+  """
+  Helm version to use.
+  """
+  let version: String!
+
+  """
+  Base container for Helm commands.
+  """
+  let base: Container! {
+    container
+      .from("cgr.dev/chainguard/wolfi-base")
+      .withExec(["apk", "add", "--no-cache", "helm~" + version])
+      .withWorkdir("/chart")
+  }
+
+  """
+  Run helm lint for this values dimension.
+  """
+  pub lint: Void @check {
+    lintExec.sync
+    null
+  }
+
+  """
+  Container state after running helm lint for this values dimension.
+  """
+  let lintExec: Container! {
+    base
+      .withMountedDirectory(".", source)
+      .withExec(lintArgs)
+  }
+
+  """
+  helm lint command arguments.
+  """
+  let lintArgs: [String!]! {
+    ["helm", "lint", ".", "--values", path]
+  }
+
+  """
+  Directory path used to keep parallel lint layers distinct.
+  """
+  let layerPath: String! {
+    path
+  }
+
+  """
+  Directory layer used to run this lint check in parallel.
   """
   let lintLayer: Directory! {
     directory.withFile("Chart.yaml", lintExec.file("Chart.yaml"))
