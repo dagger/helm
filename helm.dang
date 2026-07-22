@@ -16,7 +16,7 @@ type Helm {
   pub valuesGlob: String! = "ci/*-values.yaml"
 
   """
-  Discover Chart.yaml marker files selected from the workspace.
+  Discover Chart.yaml marker files at or below the client's working directory.
   """
   let chartYamlPaths(ws: Workspace!): [String!]! {
     # Discovery only needs the marker file; the containing directory is the
@@ -27,7 +27,7 @@ type Helm {
   }
 
   """
-  Scan the workspace for Helm charts.
+  Scan for Helm charts at or below the client's working directory.
   """
   pub charts(ws: Workspace!): [Chart!]! {
     chartYamlPaths(ws)
@@ -47,7 +47,8 @@ type Helm {
   }
 
   """
-  Return one discovered chart by its workspace-relative path.
+  Return one discovered chart by its path relative to the client's working
+  directory.
   """
   pub chart(ws: Workspace!, path: String!): Chart! {
     let cleanPath = path.trimSuffix("/")
@@ -65,7 +66,7 @@ type Helm {
   }
 
   """
-  Lint every discovered Helm chart in the workspace.
+  Lint every Helm chart visible from the client's working directory.
   """
   pub lint(ws: Workspace!): Void @check {
     let layers = charts(ws).reduce(directory) { layers, chart =>
@@ -92,7 +93,7 @@ A discovered Helm chart in the workspace.
 """
 type Chart {
   """
-  Path of the chart directory in the workspace.
+  Path of the chart directory, relative to the client's working directory.
   """
   pub path: String!
 
