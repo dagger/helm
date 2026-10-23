@@ -49,6 +49,6 @@ runs in its own container, so results cache per dimension.
 
 ## Settings
 
-- **`version`** (default `3.18.4`): the Helm version to use.
+- **`version`** (default `4.3.1`): the Helm version to use.
 - **`valuesGlob`** (default `ci/*-values.yaml`): glob for chart values files
   to check as extra matrix dimensions.
