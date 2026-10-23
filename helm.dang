@@ -5,7 +5,7 @@ type Helm {
   """
   The version of Helm to use.
   """
-  pub version: String! = "3.18.4"
+  pub version: String! = "4.3.1"
 
   """
   Glob for chart values files to check as extra matrix dimensions.
